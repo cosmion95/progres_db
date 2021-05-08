@@ -1,0 +1,29 @@
+CREATE OR REPLACE PACKAGE BODY DEMO AS
+
+  procedure add_log(p_msg varchar2) AS
+  BEGIN
+    insert into demo_logs(msg, data)
+        values(p_msg, sysdate);
+  END add_log;
+
+  function verifica_minute_trecute(p_date date, p_minute_max number) return varchar2 AS
+    v_minutes number(10);
+    begin
+        select (sysdate - p_date)*24*60 into v_minutes from dual;
+        if v_minutes > p_minute_max then
+            return 'N';
+        else
+            return 'Y';
+        end if;
+  END verifica_minute_trecute;
+
+  procedure raise_error(p_message varchar2, p_code number default -20001) AS
+    -- raises an application error with the received message
+    begin
+        if p_message is not null then
+            raise_application_error( p_code, p_message );
+        end if;
+  END raise_error;
+
+END DEMO;
+/

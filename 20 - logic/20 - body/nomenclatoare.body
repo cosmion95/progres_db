@@ -1,0 +1,42 @@
+CREATE OR REPLACE PACKAGE BODY NOMENCLATOARE AS
+
+  function get_durata_tip(p_tip number) return number AS
+    v_durata number(10);
+  BEGIN
+    if p_tip is null then
+        return null;
+    else
+        select durata into v_durata from tipuri_rezervare where id = p_tip;
+        return v_durata;
+    end if;
+  END get_durata_tip;
+  
+  function get_judete return clob is
+  -- intoarce toate judetele
+  v_judet clob := '[';
+  begin
+    for jud in (select id, denumire, prescurtare from judete order by denumire) loop
+      v_judet := v_judet || '{"denumire":"' || jud.denumire || '","prescurtare":"' || jud.prescurtare || '","id":' || jud.id || '},';
+    end loop;
+    v_judet := substr(v_judet, 0, length(v_judet)-1);
+    v_judet := v_judet || ']';
+    return v_judet;
+  end get_judete;
+  
+  function get_localitati(p_judet number) return clob is
+  -- intoarce toate localitatile din judetul primit
+  v_loc clob := '[';
+  begin
+    if p_judet is not null then
+    for loc in (select id, denumire from localitati where judet_id = p_judet order by denumire) loop
+        v_loc := v_loc || '{"id":' || loc.id || ',"denumire":"' || loc.denumire || '"},';
+    end loop;
+    v_loc := substr(v_loc, 0, length(v_loc)-1);
+    v_loc := v_loc || ']';
+    return v_loc;
+    end if;
+    return '[]';
+  end get_localitati;
+
+END NOMENCLATOARE;
+/

@@ -1,0 +1,266 @@
+CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
+
+  function verifica_program_lucru(p_punct_lucru number, p_data date, p_durata number) return varchar2 is
+    -- verifica daca data si ora este in timpul programului de lucru
+    -- intoarce D daca data este in timpul programului de lucru
+    v_ora_start number(10, 2);
+    v_ora_final number(10, 2);
+    cursor c_prog is
+      select x.ora_start, x.ora_final from
+        (select nvl(ep.ora_start, p.ora_start) ora_start, nvl(ep.ora_final, p.ora_final) ora_final
+        from program p full join exceptii_program ep
+        on p.punct_lucru_id = ep.punct_lucru_id
+           and trunc(ep.data) = trunc(p_data) 
+       where p.punct_lucru_id = p_punct_lucru
+         and p.zi_program_nr = to_number(to_char(p_data, 'd')) ) x
+    group by x.ora_start, x.ora_final
+    order by x.ora_start;
+  begin
+    --verific programul zilei: rezervarea trebuie sa inceapa si sa se termine in timpul programului de lucru
+    select to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi')))) into v_ora_start from dual;
+    select to_number((to_char(p_data + (1/1440*p_durata), 'hh24') || '.' || to_number(to_char(p_data + (1/1440*p_durata), 'mi')))) into v_ora_final from dual;
+    for ore in c_prog loop
+        if v_ora_start >= ore.ora_start and v_ora_start < ore.ora_final then
+            if v_ora_final >= ore.ora_start and v_ora_final <= ore.ora_final then    
+                return 'D'; 
+            end if;  
+        end if;
+    end loop;
+    return 'N';
+  end verifica_program_lucru;
+  
+  function verifica_rezervari_existente(p_punct_lucru number, p_data date) return varchar2 is
+    -- verifica daca exista vreo rezervare facuta la aceeasi ora
+    -- intoarce N daca exista alta programare care se suprapune cu aceasta ora
+    v_ora number(10, 2);
+    cursor prog_ant is
+        select to_number((to_char(cl.data_ora + (1/1440*cl.durata), 'hh24') || '.' || to_number(to_char(cl.data_ora + (1/1440*cl.durata), 'mi')))) timp
+          from calendar_rezervari cl
+         where cl.punct_lucru_id = p_punct_lucru
+           and trunc(cl.data_ora) = trunc(p_data)
+           and cl.validata = 'D'
+           and to_number((to_char(cl.data_ora, 'hh24') || '.' || to_number(to_char(cl.data_ora, 'mi')))) <= to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi'))))
+          order by cl.data_ora desc;
+    r_ant prog_ant%rowtype;
+  begin
+    open prog_ant;
+    fetch prog_ant into r_ant;
+    if prog_ant%notfound then
+        close prog_ant;
+    else 
+        close prog_ant;
+        select to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi')))) into v_ora from dual;
+        if r_ant.timp > v_ora then
+            return 'N';
+        end if;
+    end if;
+    return 'D';
+  end verifica_rezervari_existente;
+  
+  function verifica_durata_rezervare(p_punct_lucru number, p_data date, p_durata number) return varchar2 is
+    -- verifica daca durata rezervarii ar coincide cu alte rezervari inregistrate
+    -- intoarce D daca rezervarea se suprapune ca si durata cu o rezervare viitoare
+    v_ora number(10, 2);
+    cursor c_rez is
+        select to_number((to_char(cl.data_ora, 'hh24') || '.' || to_number(to_char(cl.data_ora, 'mi')))) timp
+      from calendar_rezervari cl
+     where cl.punct_lucru_id = p_punct_lucru
+       and trunc(cl.data_ora) = trunc(p_data)
+       and cl.validata = 'D'
+       and to_number((to_char(cl.data_ora, 'hh24') || '.' || to_number(to_char(cl.data_ora, 'mi')))) > to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi'))))
+      order by cl.data_ora;
+    r_rez c_rez%rowtype;
+  begin
+    open c_rez;
+    fetch c_rez into r_rez;
+    if c_rez%notfound then
+        close c_rez;
+    else
+        close c_rez;
+        select to_number((to_char(p_data + (1/1440*p_durata), 'hh24') || '.' || to_number(to_char(p_data + (1/1440*p_durata), 'mi')))) into v_ora from dual;
+        if v_ora > r_rez.timp then
+            return 'N';
+        end if;
+    end if;
+    return 'D';
+  end verifica_durata_rezervare;
+  
+  function verifica_data_ora_rezervare(p_punct_lucru number, p_data date, p_durata number) return varchar2 is
+    -- apeleaza functiile de verificare definite mai sus
+    -- daca vreuna din ele intoarce N, aceasta functie intoarce N
+    v_check_program varchar2(1);
+    v_check_rezervari varchar2(1);
+    v_check_durata varchar2(1); 
+  begin
+     -- verificare daca data programarii depaseste data reala
+    if sysdate > p_data then
+        return 'N';
+    end if;
+    -- verificare daca e in timpul programului de lucru
+    v_check_program := verifica_program_lucru(p_punct_lucru, p_data, p_durata);
+    if v_check_program = 'N' then
+        return 'N';
+    end if;
+    -- verificare daca exista alta rezervare la aceeasi ora si data
+    v_check_rezervari := verifica_rezervari_existente(p_punct_lucru, p_data);
+    if v_check_rezervari = 'N' then
+        return 'N';
+    end if;
+    -- verificare daca durata se suprapune cu alte programari existente
+    v_check_durata := verifica_durata_rezervare(p_punct_lucru, p_data, p_durata);
+    if v_check_durata = 'N' then
+        return 'N';
+    end if;
+    return 'D';
+  end verifica_data_ora_rezervare;
+
+  procedure inregistrare_rezervare(p_client number, p_punct_lucru number, v_data varchar2, p_tip_rezervare number, p_mesaj varchar2) AS
+   -- inregistreaza o noua cerere de rezervare 
+    v_verificare_data_ora varchar2(1);
+    v_durata number(10);
+    p_data date := to_date(v_data, 'DD.MM.YYYY HH24:MI');
+  BEGIN
+    -- validari initiale
+    if p_client is null or p_punct_lucru is null then
+        demo.raise_error('Eroare la transmiterea punctului de lucru sau a clientului.');
+    end if;
+    if p_data is null then
+        demo.raise_error('Va rugam alegeti o data.');
+    end if;
+    if p_tip_rezervare is null and p_mesaj is null then
+        demo.raise_error('Va rugam alegeti un tip de rezervare sau completati cererea dvs. in mesaj.');
+    end if;
+    
+    commit;
+    --obtin durata
+    if p_tip_rezervare is null then
+        select minim_timp_estimat into v_durata from puncte_lucru where id = p_punct_lucru;
+    else
+        v_durata := nomenclatoare.get_durata_tip(p_tip_rezervare);
+    end if;
+    
+    -- verificare daca data si ora este valida
+    v_verificare_data_ora := verifica_data_ora_rezervare(p_punct_lucru, p_data, v_durata);
+    if v_verificare_data_ora = 'N' then
+        demo.raise_error('Eroare: aceasta rezervare intra in conflict cu alte rezervari existente sau este in afara programului de lucru.');
+    end if;
+    
+    insert into calendar_rezervari(id, punct_lucru_id, client_id, tip_rezervare_id, data_ora, mesaj, durata, creata_la)
+        values(progres_id.nextval, p_punct_lucru, p_client, p_tip_rezervare, p_data, p_mesaj, v_durata, sysdate);
+  END inregistrare_rezervare;
+  
+  procedure validare_rezervare(p_angajat number, p_rezervare number, v_data varchar2, p_durata number, p_tip_rezervare number, p_rezervat_la number) is
+    -- validare cerere de rezervare
+    cursor c_rez is
+      select cl.data_ora, cl.punct_lucru_id
+        from calendar_rezervari cl
+       where cl.id = p_rezervare;
+    r_rez c_rez%rowtype;
+    v_verificare_data_ora varchar2(1);
+    p_data date := to_date(v_data, 'DD.MM.YYYY HH24:MI');
+  begin
+    open c_rez;
+    fetch c_rez into r_rez;
+    close c_rez;
+    
+    -- verific durata noua
+    if p_durata is null then
+        demo.raise_error('Durata este obligatorie.');
+    end if;
+     -- fac din nou validarile pe noua ora
+        v_verificare_data_ora := verifica_data_ora_rezervare(r_rez.punct_lucru_id, p_data, p_durata);
+        if v_verificare_data_ora = 'N' then
+            demo.raise_error('Eroare: aceasta rezervare intra in conflict cu alte rezervari existente sau este in afara programului de lucru.');
+        end if;
+    -- verific daca data si ora e diferita fata de cea ceruta de client
+    if p_data <> r_rez.data_ora then
+        update calendar_rezervari
+           set validata = 'D',
+               validata_de = p_angajat,
+               validata_la = sysdate,
+               durata = p_durata,
+               tip_rezervare_id = p_tip_rezervare,
+               data_ora = p_data,
+               rezervare_la = p_rezervat_la
+        where id = p_rezervare;
+    else
+        update calendar_rezervari
+           set validata = 'D',
+               validata_de = p_angajat,
+               validata_la = sysdate,
+               durata = p_durata,
+               tip_rezervare_id = p_tip_rezervare,
+               confirmata = 'D',
+               confirmata_la = sysdate,
+               rezervare_la = p_rezervat_la
+        where id = p_rezervare;
+    end if;
+  end validare_rezervare;
+  
+  procedure confirmare_rezervare_valida(p_client number, p_rezervare number) is
+    --actualizeaza bifa de confirmare pe o rezervare validata
+    cursor c_rez is
+      select validata, confirmata, data_ora from calendar_rezervari where id = p_rezervare;
+    r_rez c_rez%rowtype;
+  begin
+    open c_rez;
+    fetch c_rez into r_rez;
+    close c_rez;
+    if sysdate < r_rez.data_ora then
+        if r_rez.validata = 'D' and r_rez.confirmata = 'N' then
+            update calendar_rezervari set confirmata = 'D', confirmata_la = sysdate where id = p_rezervare;
+        end if;
+    end if;
+  end confirmare_rezervare_valida;
+  
+  procedure anulare_client(p_rezervare number, p_client number, p_motiv varchar2) is
+  -- actualizeaza bifa de anulata
+  cursor c_rez is
+      select anulata, data_ora from calendar_rezervari where id = p_rezervare;
+    r_rez c_rez%rowtype;
+  begin
+   open c_rez;
+    fetch c_rez into r_rez;
+    close c_rez;
+    if sysdate < r_rez.data_ora then
+        if r_rez.anulata = 'N' then
+            update calendar_rezervari set anulata = 'D', motiv_anulare = p_motiv, anulata_la = sysdate where id = p_rezervare;
+        end if;
+    end if;
+  end anulare_client;
+  
+  procedure anulare_angajat(p_rezervare number, p_angajat number, p_motiv varchar2) is
+  -- actualizeaza bifa de anulata si completeaza campul anulat_de cu angajatul
+  cursor c_rez is
+      select anulata, data_ora from calendar_rezervari where id = p_rezervare;
+    r_rez c_rez%rowtype;
+  begin
+   open c_rez;
+    fetch c_rez into r_rez;
+    close c_rez;
+    if sysdate < r_rez.data_ora then
+        if r_rez.anulata = 'N' then
+            update calendar_rezervari set anulata = 'D', motiv_anulare = p_motiv, anulata_la = sysdate, anulata_de = p_angajat where id = p_rezervare;
+        end if;
+    end if;
+  end anulare_angajat;
+  
+  procedure marcare_neprezentat(p_rezervare number) is
+  -- actualizeaza bifa de prezenta la o rezervare si recalculeaza rata de prezenta a clientului
+  -- conditionez actualizarea: pentru a putea marca neprezentarea trebuie sa fi trecut cel putin jumatate din durata de la inceputul programarii si nu mai mult de 3 zile
+   cursor c_rez is
+      select data_ora, durata, validata from calendar_rezervari where id = p_rezervare;
+    r_rez c_rez%rowtype;
+  begin
+   open c_rez;
+    fetch c_rez into r_rez;
+    close c_rez;
+    if sysdate > (r_rez.data_ora + 1/1440*(r_rez.durata/2)) and sysdate < (r_rez.data_ora + 3) then
+        if r_rez.validata = 'D' then
+            update calendar_rezervari set prezenta = 'N' where id = p_rezervare;
+        end if;
+    end if;
+  end marcare_neprezentat;
+  
+END REZERVARE_MANAGEMENT;
+/

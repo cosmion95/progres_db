@@ -1,0 +1,89 @@
+CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
+
+  procedure add_punct_lucru(p_tert number, p_denumire varchar2, p_telefon varchar2, p_domeniu number, p_localitate number, p_strada varchar2, p_nr_strada varchar2, p_cuvinte_cheie varchar2 default null, p_rata_prezenta varchar2 default null) AS
+  BEGIN
+    if p_tert is null then
+        demo.raise_error('A aparut o eroare la transmiterea tertului.');
+    end if;
+    if p_denumire is null then
+        demo.raise_error('Denumirea este obligatorie.');
+    elsif p_domeniu is null then
+        demo.raise_error('Domeniul este obligatoriu.');
+    elsif p_telefon is null then
+        demo.raise_error('Numarul de telefon este obligatoriu.');
+    elsif p_localitate is null then
+        demo.raise_error('Localitatea este obligatorie.');
+    elsif p_strada is null then
+        demo.raise_error('Strada este obligatorie.');
+    elsif p_nr_strada is null then
+        demo.raise_error('Numarul strazii este obligatoriu.');
+    end if;
+    insert into puncte_lucru(id, tert_id, denumire, telefon, domeniu_id, localitate_id, strada, nr_strada, cuvinte_cheie)
+        values(progres_id.nextval, p_tert, p_denumire, p_telefon, p_domeniu, p_localitate, p_strada, p_nr_strada, p_cuvinte_cheie);
+  END add_punct_lucru;
+
+  procedure add_program(p_punct_lucru number, p_zi number, p_ora_start number, p_ora_final number) AS
+  BEGIN
+    if p_punct_lucru is null then
+        demo.raise_error('A aparut o eroare la transmiterea punctului de lucru.');
+    end if;
+    if p_zi is null then
+        demo.raise_error('Va rugam alegeti o zi.');
+    elsif p_ora_start is null or p_ora_final is null then
+        demo.raise_error('Va rugam alegeti ora de inceput si de sfarsit a programului de lucru.');
+    end if;
+    insert into program(id, punct_lucru_id, zi_program_nr, ora_start, ora_final)
+        values(progres_id.nextval, p_punct_lucru, p_zi, p_ora_start, p_ora_final);
+  END add_program;
+
+  procedure add_exceptie_program(p_punct_lucru number, p_data date, p_ora_start number, p_ora_final number) AS
+  BEGIN
+    if p_punct_lucru is null then
+        demo.raise_error('A aparut o eroare la transmiterea punctului de lucru.');
+    end if;
+    if p_data is null then
+        demo.raise_error('Va rugam alegeti o data');
+    elsif p_ora_start is null or p_ora_final is null then
+        demo.raise_error('Va rugam alegeti ora de inceput si de sfarsit a programului de lucru.');
+    end if;
+    insert into exceptii_program(id, punct_lucru_id, data, ora_start, ora_final)
+        values(progres_id.nextval, p_punct_lucru, p_data, p_ora_start, p_ora_final);
+  END add_exceptie_program;
+
+  procedure add_tip_rezervare(p_punct_lucru number, p_denumire varchar2, p_durata number, p_validare_automata varchar2, p_creat_de number) AS
+  BEGIN
+    if p_punct_lucru is null then
+        demo.raise_error('A aparut o eroare la transmiterea punctului de lucru.');
+    end if;
+    if p_denumire is null then
+        demo.raise_error('Va rugam sa completati denumirea.');
+    elsif p_durata is null then
+        demo.raise_error('Durata este obligatorie.');
+    elsif p_creat_de is null then
+        demo.raise_error('Eroare la transmiterea tertului.');
+    end if;
+    insert into tipuri_rezervare(id, denumire, validare_automata, durata, punct_lucru_id, creat_de, creat_la)
+        values(progres_id.nextval, p_denumire, nvl(p_validare_automata, 'N'), p_durata, p_punct_lucru, p_creat_de, sysdate);
+  END add_tip_rezervare;
+  
+  procedure add_angajat(p_punct_lucru number, p_nume varchar2, p_prenume varchar2, p_username varchar2, p_parola varchar2, p_functie varchar2, p_telefon varchar2, p_manager varchar2 default 'N') is
+  begin
+    if p_punct_lucru is null then
+        demo.raise_error('Eroare la transmiterea punctului de lucru.');
+    end if;
+    if p_nume is null or p_prenume is null then
+        demo.raise_error('Numele si prenumele este obligatoriu.');
+    elsif p_username is null or p_parola is null then
+        demo.raise_error('Username-ul si parola este obligatorie.');
+    elsif p_functie is null then
+        demo.raise_error('Functia este obligatorie.');
+    elsif p_telefon is null then
+        demo.raise_error('Telefonul este obligatoriu.');
+    end if;
+    insert into angajati(id, punct_lucru_id, nume, prenume, username, parola, telefon, functie, manager)
+        values(progres_id.nextval, p_punct_lucru, p_nume, p_prenume, p_username, p_parola, p_telefon, p_functie, p_manager);
+  end add_angajat;
+
+
+END TERT_MANAGEMENT;
+/
