@@ -83,6 +83,70 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
     insert into angajati(id, punct_lucru_id, nume, prenume, username, parola, telefon, functie, manager)
         values(progres_id.nextval, p_punct_lucru, p_nume, p_prenume, p_username, p_parola, p_telefon, p_functie, p_manager);
   end add_angajat;
+  
+  function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2) return clob is
+  -- filtreaza si intoarce o lista cu punctele de lucru
+  v_clob clob := '[';
+  cursor c is
+  select p.id, p.denumire, p.telefon, p.strada, p.nr_strada, d.id dom_id, d.denumire dom_denumire
+    from puncte_lucru p, domenii d
+    where p.localitate_id = p_localitate
+    and p.domeniu_id = d.id
+    and (p.domeniu_id = p_domeniu or p_domeniu is null)
+    and (tert_management.verifica_cuvinte_cheie(p.denumire, p.cuvinte_cheie, p_cuvinte_cheie) = 'D' or p_cuvinte_cheie is null);
+  begin
+    for r in c loop
+        v_clob := v_clob || '{"id":' || r.id || ',"denumire":"' || r.denumire || '","telefon":"' || r.telefon || '","strada":"' ||
+        r.strada || '","nr_strada":"' || r.nr_strada || '","dom_id":' || r.dom_id || ',"dom_denumire":"' || r.dom_denumire || '"},';
+    end loop;
+    v_clob := substr(v_clob, 0, length(v_clob)-1);
+    v_clob := v_clob || ']';
+    return v_clob;
+  end get_puncte_lucru;
+  
+  function verifica_cuvinte_cheie(p_denumire_punct varchar2, p_cuvinte_punct varchar2, p_cuvinte_cautate varchar2) return varchar2 is
+  -- verifica cuvintele cheie de la punctul de lucru cu cele cautate de client
+    v_caut varchar2(512) := p_cuvinte_punct;
+    v_denumire varchar2(256) := p_denumire_punct;
+    v_cuvinte_cheie varchar2(64) := p_cuvinte_cautate;
+    v_nr_cuvinte number(10);
+    v_start_pos number(10) := 0;
+    v_final_pos number(10);
+    v_cuvant varchar2(64);
+    v_gasit number(10) := 0;
+    begin
+        v_cuvinte_cheie := trim(v_cuvinte_cheie);
+        select regexp_count(v_cuvinte_cheie, ' ')+1 into v_nr_cuvinte from dual;
+        if v_nr_cuvinte > 1 then
+        for i in 1..v_nr_cuvinte loop
+          if i = 1 then
+            select instr(v_cuvinte_cheie, ' ', 1, i) into v_final_pos from dual;
+            select substr(v_cuvinte_cheie, v_start_pos, v_final_pos-v_start_pos-1) into v_cuvant from dual;
+          elsif i = v_nr_cuvinte then
+            select instr(v_cuvinte_cheie, ' ', 1, i-1) into v_start_pos from dual;
+            select instr(v_cuvinte_cheie, ' ', 1, i) into v_final_pos from dual;
+            select substr(v_cuvinte_cheie, v_start_pos+1, length(v_cuvinte_cheie) - v_start_pos) into v_cuvant from dual;
+          else
+            select instr(v_cuvinte_cheie, ' ', 1, i-1) into v_start_pos from dual;
+            select instr(v_cuvinte_cheie, ' ', 1, i) into v_final_pos from dual;
+            select substr(v_cuvinte_cheie, v_start_pos+1, v_final_pos-v_start_pos-1) into v_cuvant from dual;
+          end if;
+          if length(v_cuvant) > 0 then
+            v_cuvant := upper(v_cuvant);
+            select count(*) into v_gasit from dual where upper(v_caut) like ('%' || v_cuvant || '%') or upper(v_denumire) like ('%' || v_cuvant || '%');
+            if v_gasit  > 0 then
+             return 'D';
+            end if;
+          end if;
+        end loop;
+        else
+          select count(*) into v_gasit from dual where upper(v_caut) like ('%' || upper(v_cuvinte_cheie) || '%') or upper(v_denumire) like ('%' || upper(v_cuvinte_cheie) || '%');
+          if v_gasit  > 0 then
+             return 'D';
+        end if;
+        end if;
+    return 'N';
+  end verifica_cuvinte_cheie;
 
 
 END TERT_MANAGEMENT;

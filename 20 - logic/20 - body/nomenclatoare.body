@@ -37,6 +37,60 @@ CREATE OR REPLACE PACKAGE BODY NOMENCLATOARE AS
     end if;
     return '[]';
   end get_localitati;
+  
+  function get_localitate_from_id(p_id number) return varchar2 is
+  -- intoarce detaliile despre localitate pe baza id-ului
+  cursor c_loc is
+      select denumire, judet_id from localitati where id = p_id;
+    r_loc c_loc%rowtype;
+    v_return varchar2(1024);
+    begin
+        open c_loc;
+        fetch c_loc into r_loc;
+        if c_loc%notfound then
+            close c_loc;
+            demo.raise_error('A aparut o eroare. Localitate invalida');
+        else
+            close c_loc;
+            v_return := '{"denumire": "' || r_loc.denumire ||
+                        '", "judet_id": ' || r_loc.judet_id || '}';
+            return v_return;
+        end if;
+  end get_localitate_from_id;
+  
+  function get_judet_from_id(p_id number) return varchar2 is
+  -- intoarce detaliile despre judet pe baza id-ului
+  cursor c_loc is
+      select denumire, prescurtare from judete where id = p_id;
+    r_loc c_loc%rowtype;
+    v_return varchar2(1024);
+    begin
+        open c_loc;
+        fetch c_loc into r_loc;
+        if c_loc%notfound then
+            close c_loc;
+            demo.raise_error('A aparut o eroare. Localitate invalida');
+        else
+            close c_loc;
+            v_return := '{"denumire": "' || r_loc.denumire ||
+                        '", "prescurtare": "' || r_loc.prescurtare || '"}';
+            return v_return;
+        end if;
+  end get_judet_from_id;
+  
+  function get_domenii return clob is
+  -- intoarce toate domeniile
+  v_domenii clob := '[';
+  begin
+    for dom in (select id, denumire from domenii order by denumire) loop
+      v_domenii := v_domenii || '{"denumire":"' || dom.denumire || '","id":' || dom.id || '},';
+    end loop;
+    v_domenii := substr(v_domenii, 0, length(v_domenii)-1);
+    v_domenii := v_domenii || ']';
+    return v_domenii;
+  end get_domenii;
+  
+  
 
 END NOMENCLATOARE;
 /

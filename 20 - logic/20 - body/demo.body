@@ -13,7 +13,7 @@ CREATE OR REPLACE PACKAGE BODY DEMO AS
         if v_minutes > p_minute_max then
             return 'N';
         else
-            return 'Y';
+            return 'D';
         end if;
   END verifica_minute_trecute;
 

@@ -18,7 +18,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
     --verific daca mai exista vreun client cu acelasi username/email
     select count(*) into v_check_email from clienti where upper(email) = upper(p_email) or upper(username) = upper(p_username);
     if v_check_email > 0 then
-        demo.raise_error('Numele de utilizator sau email-ul exista deja in sistem.');
+        demo.raise_error('Aceasta adresa de email exista deja in sistem.');
     end if;
     insert into clienti(id, nume, prenume, email, username, parola, telefon, localitate_id)
         values(progres_id.nextval, p_nume, p_prenume, p_email, p_username, p_parola, p_telefon, p_localitate);
@@ -169,7 +169,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         return v_cod;
     end get_cod_inregistrare;
     
-    function login(p_email varchar2, p_parola varchar2) return varchar2 is
+    function login(p_email varchar2, p_parola varchar2) return number is
     -- verifica daca email-ul si parola se potrivesc
         cursor c_client is
             select id, parola
@@ -185,12 +185,80 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         else
             close c_client;
             if r_client.parola = p_parola then
-                return p_email;
+                return r_client.id;
             else
                demo.raise_error('Email sau parola incorecta.'); 
             end if;
         end if;
     end login;
+    
+    function get_client_from_id(p_client number) return varchar2 is
+    -- intoarce detaliile despre client
+    cursor c_client is
+      select id, nume, prenume, email, telefon, localitate_id, rata_prezenta from clienti where id = p_client;
+    r_client c_client%rowtype;
+    v_return varchar2(1024);
+    begin
+        open c_client;
+        fetch c_client into r_client;
+        if c_client%notfound then
+            close c_client;
+            demo.raise_error('A aparut o eroare. Utilizator invalid');
+        else
+            close c_client;
+            return 'D';
+        end if;
+    end get_client_from_id;
+    
+    function get_client_from_email(p_email varchar2) return varchar2 is
+    -- intoarce detaliile despre client
+    cursor c_client is
+      select c.id, c.nume, c.prenume, c.telefon, c.rata_prezenta, l.id loc_id, l.denumire loc_denumire, j.id jud_id, j.denumire jud_denumire, j.prescurtare jud_prescurtare 
+        from clienti c, localitati l, judete j
+       where c.email = p_email
+         and c.localitate_id = l.id
+         and l.judet_id = j.id;
+    r_client c_client%rowtype;
+    v_return varchar2(1024);
+    begin
+        open c_client;
+        fetch c_client into r_client;
+        if c_client%notfound then
+            close c_client;
+            demo.raise_error('A aparut o eroare. Utilizator invalid');
+        else
+            close c_client;
+            v_return := '{ "id": ' || r_client.id ||
+                        ', "nume": "' || r_client.nume ||
+                        '", "prenume": "' || r_client.prenume ||
+                        '", "telefon": "' || r_client.telefon ||
+                        '", "rata_prezenta": ' || r_client.rata_prezenta ||
+                        ', "loc_id": ' || r_client.loc_id ||
+                        ', "loc_denumire": "' || r_client.loc_denumire ||
+                        '", "jud_id": ' || r_client.jud_id ||
+                        ', "jud_denumire": "' || r_client.jud_denumire ||
+                        '", "jud_prescurtare": "' || r_client.jud_prescurtare ||
+                        '"}';
+            return v_return;
+        end if;
+    end get_client_from_email;
+    
+    function get_client_id(p_email varchar2) return number is
+    -- intoarce detaliile despre client
+    cursor c_client is
+      select id from clienti where email = p_email;
+    r_client c_client%rowtype;
+    begin
+        open c_client;
+        fetch c_client into r_client;
+        if c_client%notfound then
+            close c_client;
+            demo.raise_error('A aparut o eroare. Utilizator invalid');
+        else
+            close c_client;
+            return r_client.id;
+        end if;
+    end get_client_id;
     
     procedure create_client_token(p_client number) is
     -- creeaza un nou token pentru client
@@ -220,6 +288,23 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
       return v_tokens;
     end get_client_tokens;
     
+    function get_client_token(p_client number) return varchar2 is
+    -- intoarce cel mai recent creat token al unui client
+    cursor c_tok is
+      select token from client_tokens where client_id = p_client order by creat_la desc;
+    r_tok c_tok%rowtype;
+    begin
+      open c_tok;
+      fetch c_tok into r_tok;
+      if c_tok%notfound then
+        close c_tok;
+        demo.raise_error('Clientul nu are niciun token generat.'); 
+      else
+        close c_tok;
+        return r_tok.token;
+      end if;
+    end get_client_token;
+    
     function check_token(p_token varchar2) return varchar2 is
     -- verifica daca token-ul transmis este valid
     v_check number(1);
@@ -231,6 +316,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         return 'N';
       end if;
     end check_token;
+    
 
 END CLIENT_MANAGEMENT;
 /
