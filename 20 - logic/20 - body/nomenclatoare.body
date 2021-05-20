@@ -82,8 +82,8 @@ CREATE OR REPLACE PACKAGE BODY NOMENCLATOARE AS
   -- intoarce toate domeniile
   v_domenii clob := '[';
   begin
-    for dom in (select id, denumire from domenii order by denumire) loop
-      v_domenii := v_domenii || '{"denumire":"' || dom.denumire || '","id":' || dom.id || '},';
+    for dom in (select id, denumire, icon_id, font_family from domenii order by denumire) loop
+      v_domenii := v_domenii || '{"denumire":"' || dom.denumire || '","id":' || dom.id || ',"icon_id":' || dom.icon_id || ',"font_family":"' || dom.font_family || '"},';
     end loop;
     v_domenii := substr(v_domenii, 0, length(v_domenii)-1);
     v_domenii := v_domenii || ']';

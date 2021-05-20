@@ -10,5 +10,6 @@ create table puncte_lucru(
  cuvinte_cheie varchar2(256),
  rata_prezenta_minima number(10) default 50,
  minim_timp_estimat number(10) default 30 not null,
+ zile_rezervari_max number(10) default 60
  constraint puncte_lucru_pk primary key (id)
 );

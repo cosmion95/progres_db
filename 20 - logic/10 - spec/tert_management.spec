@@ -7,6 +7,15 @@ CREATE OR REPLACE PACKAGE TERT_MANAGEMENT AS
   procedure add_angajat(p_punct_lucru number, p_nume varchar2, p_prenume varchar2, p_username varchar2, p_parola varchar2, p_functie varchar2, p_telefon varchar2, p_manager varchar2 default 'N');
   function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2) return clob;
   function verifica_cuvinte_cheie(p_denumire_punct varchar2, p_cuvinte_punct varchar2, p_cuvinte_cautate varchar2) return varchar2;
+  
+  function get_program_punct(p_punct number) return clob;
+  --intoarce programul de lucru al punctului incepand de azi si mergand pana la nr max zile stabilite la nivelul punctului
+  
+  function get_urmatoarea_zi_lucratoare(p_punct number) return varchar2;
+  -- intoarce data urmatoarei zi lucratoare a punctului de lucru din momentul apelului
+  
+  function get_procent_ocupare(p_punct number, p_data varchar2) return varchar2;
+  -- intoarce cat % de ocupat este punctul de lucru la data transmisa
 
 END TERT_MANAGEMENT;
 /

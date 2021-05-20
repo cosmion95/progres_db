@@ -88,7 +88,7 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
   -- filtreaza si intoarce o lista cu punctele de lucru
   v_clob clob := '[';
   cursor c is
-  select p.id, p.denumire, p.telefon, p.strada, p.nr_strada, d.id dom_id, d.denumire dom_denumire
+  select p.id, p.denumire, p.telefon, p.strada, p.nr_strada, p.zile_rezervari_max, d.id dom_id, d.denumire dom_denumire, d.icon_id dom_icon_id, d.font_family dom_font_family
     from puncte_lucru p, domenii d
     where p.localitate_id = p_localitate
     and p.domeniu_id = d.id
@@ -97,7 +97,8 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
   begin
     for r in c loop
         v_clob := v_clob || '{"id":' || r.id || ',"denumire":"' || r.denumire || '","telefon":"' || r.telefon || '","strada":"' ||
-        r.strada || '","nr_strada":"' || r.nr_strada || '","dom_id":' || r.dom_id || ',"dom_denumire":"' || r.dom_denumire || '"},';
+        r.strada || '","nr_strada":"' || r.nr_strada || '", "zile_rezervari_max":' || r.zile_rezervari_max || ',"dom_id":' || r.dom_id || ',"dom_denumire":"' || 
+        r.dom_denumire || '", "dom_icon_id":' || r.dom_icon_id || ',"dom_font_family":"' || r.dom_font_family || '"},';
     end loop;
     v_clob := substr(v_clob, 0, length(v_clob)-1);
     v_clob := v_clob || ']';
@@ -147,6 +148,91 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
         end if;
     return 'N';
   end verifica_cuvinte_cheie;
+  
+  function get_program_punct(p_punct number) return clob is
+  --intoarce programul de lucru al punctului incepand de azi si mergand pana la nr max zile stabilite la nivelul punctului
+  v_clob clob := '[';
+  cursor c is
+    select x.data_gasita, x.ora_start, x.ora_final from (
+    with dates as (select sysdate + ROWNUM - 1 data_gasita
+                      from dual 
+                   connect by sysdate + ROWNUM - 1 <= sysdate+(select zile_rezervari_max from puncte_lucru where id = p_punct))
+    select to_char(d.data_gasita, 'DD.MM.YYYY') data_gasita, nvl(ep.ora_start, pr.ora_start) ora_start, nvl(ep.ora_final, pr.ora_final) ora_final
+    from dates d left join exceptii_program ep on trunc(d.data_gasita) = trunc(ep.data) and ep.punct_lucru_id = p_punct, program pr
+    where pr.punct_lucru_id = p_punct
+    and pr.zi_program_nr = to_number(to_char(d.data_gasita, 'd'))) x
+    group by x.data_gasita, x.ora_start, x.ora_final
+    order by x.data_gasita, x.ora_start;
+  begin
+    for r in c loop
+        v_clob := v_clob || '{"data":"' || r.data_gasita || '","ora_start":"' || r.ora_start || '","ora_final":"' || r.ora_final || '"},';
+    end loop;
+    v_clob := substr(v_clob, 0, length(v_clob)-1);
+    v_clob := v_clob || ']';
+    return v_clob;
+  end get_program_punct;
+  
+  function get_urmatoarea_zi_lucratoare(p_punct number) return varchar2 is
+  -- intoarce data urmatoarei zi lucratoare a punctului de lucru din momentul apelului
+  v_return varchar2(128);
+   cursor c is
+    select x.data_gasita, x.ora_start, x.ora_final from (
+    with dates as (select sysdate + ROWNUM - 1 data_gasita
+                      from dual 
+                   connect by sysdate + ROWNUM - 1 <= sysdate+(select zile_rezervari_max from puncte_lucru where id = p_punct))
+    select d.data_gasita data_gasita, nvl(ep.ora_start, pr.ora_start) ora_start, nvl(ep.ora_final, pr.ora_final) ora_final
+    from dates d left join exceptii_program ep on trunc(d.data_gasita) = trunc(ep.data) and ep.punct_lucru_id = p_punct, program pr
+    where pr.punct_lucru_id = p_punct
+    and pr.zi_program_nr = to_number(to_char(d.data_gasita, 'd'))) x
+    where ((trunc(sysdate) = trunc(x.data_gasita) and to_number((to_char(sysdate, 'hh24') || '.' || to_number(to_char(sysdate, 'mi')))) < x.ora_final) or trunc(x.data_gasita) > trunc(sysdate))
+    group by x.data_gasita, x.ora_start, x.ora_final
+    order by x.data_gasita, x.ora_start;
+    r c%rowtype;
+  begin
+    open c;
+    fetch c into r;
+    if c%found then
+      v_return := '{"data":"' || to_char(r.data_gasita, 'DD.MM.YYYY') || '"}';
+    end if;
+    return v_return;
+  end get_urmatoarea_zi_lucratoare;
+  
+  function get_procent_ocupare(p_punct number, p_data varchar2) return varchar2 is
+  -- intoarce cat % de ocupat este punctul de lucru la data transmisa
+    v_total_minute number(10) := 0;
+    v_min_rezerv number(10) := 0;
+    v_procent number(10) := 0;
+    v_min_start number(10) := 0;
+    v_min_final number(10) := 0;
+    cursor c_total is
+      select x.* from
+    (select nvl(ep.ora_start, p.ora_start) ora_start, nvl(ep.ora_final, p.ora_final) ora_final
+    from program p left join exceptii_program ep on ep.punct_lucru_id = p.punct_lucru_id and trunc(ep.data) = trunc(to_date(p_data, 'DD.MM.YYYY'))
+    where p.punct_lucru_id = p_punct
+    and p.zi_program_nr = to_number(to_char(to_date(p_data, 'DD.MM.YYYY'), 'd'))) x
+    group by x.ora_start, x.ora_final
+    order by x.ora_start;
+    cursor c_rez is
+      select sum(durata) durata from calendar_rezervari where punct_lucru_id = p_punct and trunc(data_ora) = trunc(to_date(p_data, 'DD.MM.YYYY')) and anulata = 'N' and validata = 'D';
+    r_rez c_rez%rowtype;
+    begin
+      for r in c_total loop
+        v_min_start := v_min_start + floor(r.ora_start)*60 + (r.ora_start - floor(r.ora_start))*100;
+        v_min_final := v_min_final + floor(r.ora_final)*60 + (r.ora_final - floor(r.ora_final))*100;
+        v_total_minute := v_total_minute + (v_min_final - v_min_start);
+      end loop;
+      open c_rez;
+      fetch c_rez into r_rez;
+      if c_rez%found and r_rez.durata is not null then
+        v_min_rezerv := r_rez.durata;
+      else
+        v_min_rezerv := 0;
+      end if;
+      if v_total_minute > 0 then
+        v_procent := 100 - ((v_min_rezerv*100)/v_total_minute);
+      end if;
+      return '{"procent":"' || to_char(100 - v_procent) || '"}';
+  end get_procent_ocupare;
 
 
 END TERT_MANAGEMENT;
