@@ -92,7 +92,7 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
     v_check_rezervari varchar2(1);
     v_check_durata varchar2(1); 
   begin
-     -- verificare daca data programarii depaseste data reala
+     -- verificare daca data programarii depaseste data sistemului
     if sysdate > p_data then
         return 'N';
     end if;
@@ -261,6 +261,65 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
         end if;
     end if;
   end marcare_neprezentat;
+  
+  function verificare_timp_ales(p_punct number, v_data varchar2, p_tip number) return varchar2 is
+  -- verifica daca data si ora aleasa de utilizator sunt valide
+  -- incearca sa gaseasca o ora valida daca exista si sa o intoarca inapoi catre utilizator
+    v_verificare_data_ora varchar2(1);
+    v_durata number(10);
+    p_data date := to_date(v_data, 'DD.MM.YYYY HH24:MI');
+    v_ora_start number;
+    v_ora_final_rez number;
+    v_new_ora number;
+    v_minut number;
+    v_new_data date;
+    v_data_string varchar2(64);
+    v_return varchar2(256);
+    cursor c_prog is
+    select x.ora_start, x.ora_final from 
+            (select nvl(ep.ora_start, pr.ora_start) ora_start, nvl(ep.ora_final, pr.ora_final) ora_final
+            from program pr left join exceptii_program ep on ep.punct_lucru_id = pr.punct_lucru_id and trunc(ep.data) = trunc(p_data)
+            where pr.punct_lucru_id = p_punct
+            and pr.zi_program_nr = to_number(to_char(p_data, 'd')))x
+            group by x.ora_start, x.ora_final
+            order by x.ora_start;
+    cursor c_rezervari is
+            select cd.data_ora, cd.durata from calendar_rezervari cd where cd.punct_lucru_id = p_punct and trunc(cd.data_ora) = trunc(p_data) and cd.validata = 'D' and cd.anulata = 'N';
+  begin
+    if p_tip is null then
+        select minim_timp_estimat into v_durata from puncte_lucru where id = p_punct;
+    else
+        select durata into v_durata from tipuri_rezervare where id = p_tip; 
+    end if;
+    select to_number(to_char(p_data, 'HH24')) + to_number(to_char(p_data, 'MI'))/100
+              into v_ora_start from dual;
+    v_new_ora := v_ora_start;
+    for r in c_prog loop
+        --DBMS_OUTPUT.PUT_LINE(r.ora_start || ' - ' || r.ora_final);
+        if r.ora_start >= v_ora_start and r.ora_start < v_ora_start+1 then
+          v_new_ora := r.ora_start;
+        end if;
+    end loop;
+    for r in c_rezervari loop
+      select to_number(to_char(r.data_ora + (1/1440*r.durata), 'HH24')) + to_number(to_char(r.data_ora + (1/1440*r.durata), 'MI'))/100
+              into v_ora_final_rez from dual;
+       if v_ora_final_rez >= v_ora_start and v_ora_final_rez < v_ora_start+1 then
+          v_new_ora := v_ora_final_rez;
+        end if;
+    end loop;
+    v_data_string := to_char(p_data, 'DD.MM.YYYY') || ' ' || to_char(floor(v_new_ora)) || ':' || to_char((v_new_ora - floor(v_new_ora))* 100);
+    v_new_data := to_date(v_data_string, 'DD.MM.YYYY HH24:MI');
+    -- verificare daca data si ora este valida
+    v_verificare_data_ora := verifica_data_ora_rezervare(p_punct, v_new_data, v_durata);
+    if v_verificare_data_ora = 'N' then
+        v_return := '{"accepted":"no"}';
+    else
+        v_minut := (v_new_ora - floor(v_new_ora)) * 100;
+        v_return := '{"accepted":"yes",' || '"data":"' || to_char(v_new_data, 'DD.MM.YYYY') || '","ora":"' || floor(v_new_ora) || '","minut":"' || v_minut || '"}';
+    end if;
+    return v_return;
+    
+  end verificare_timp_ales;
   
 END REZERVARE_MANAGEMENT;
 /

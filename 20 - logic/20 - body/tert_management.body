@@ -233,6 +233,91 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
       end if;
       return '{"procent":"' || to_char(100 - v_procent) || '"}';
   end get_procent_ocupare;
+  
+  function get_program_neeligibil(p_punct number) return clob is
+    v_pauze clob := '[';
+    v_ora_pauza_start number;
+    v_ora_pauza_final number;
+    v_ora_prog_start number;
+    v_ora_prog_final number;
+    v_count_pauze number := 0;
+    v_zi_lucratoare number := 0;
+    v_ora_start_rez number;
+    v_ora_final_rez number;
+    cursor c_date is
+     with dates as (select sysdate + ROWNUM - 1 data_gasita
+                          from dual 
+                       connect by sysdate + ROWNUM - 1 <= sysdate+(select zile_rezervari_max from puncte_lucru where id = p_punct))
+        select d.data_gasita data_gasita from dates d;
+    
+    cursor c_program(p_data date) is 
+        select x.ora_start, x.ora_final from 
+        (select nvl(ep.ora_start, pr.ora_start) ora_start, nvl(ep.ora_final, pr.ora_final) ora_final
+        from program pr left join exceptii_program ep on ep.punct_lucru_id = pr.punct_lucru_id and trunc(ep.data) = trunc(p_data)
+        where pr.punct_lucru_id = p_punct
+        and pr.zi_program_nr = to_number(to_char(p_data, 'd')))x
+        group by x.ora_start, x.ora_final
+        order by x.ora_start;
+        
+    cursor c_rezervari(p_data date) is
+        select cd.data_ora, cd.durata from calendar_rezervari cd where cd.punct_lucru_id = p_punct and trunc(cd.data_ora) = trunc(p_data) and cd.validata = 'D' and cd.anulata = 'N';
+    begin
+      for r_data in c_date loop
+        v_zi_lucratoare := 0;
+        -- adaug pauzele din timpul programului de lucru
+        for r_prog in c_program(r_data.data_gasita) loop
+        v_zi_lucratoare := 1;
+        if v_count_pauze = 0 then
+            v_ora_pauza_start := r_prog.ora_final;
+            v_ora_prog_final := r_prog.ora_start;
+            v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","tip":"pauza_out","ora_start":' || 0 || ',"ora_final":' || r_prog.ora_start || '},';
+        else
+            if v_ora_pauza_start is null then
+                v_ora_pauza_start := r_prog.ora_final;
+            end if;
+            if v_ora_pauza_final is null then
+                v_ora_pauza_final := r_prog.ora_start;
+                v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","tip":"pauza_in","ora_start":' || v_ora_pauza_start || ',"ora_final":' || v_ora_pauza_final || '},';
+                v_ora_pauza_start := r_prog.ora_final;
+                v_ora_pauza_final := null;
+            end if;
+        end if;
+        v_count_pauze := v_count_pauze + 1;
+        v_ora_prog_start := r_prog.ora_final;
+      end loop;
+      v_count_pauze := 0;
+      for r_rez in c_rezervari(r_data.data_gasita) loop
+        select to_number(to_char(r_rez.data_ora, 'HH24')) +  to_number(to_char(r_rez.data_ora, 'MI'))/100
+          into v_ora_start_rez from dual;
+        select to_number(to_char(r_rez.data_ora + (1/1440*r_rez.durata), 'HH24')) + to_number(to_char(r_rez.data_ora + (1/1440*r_rez.durata), 'MI'))/100
+          into v_ora_final_rez from dual;
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","tip":"rezervare","ora_start":' || v_ora_start_rez || ',"ora_final":' || v_ora_final_rez || '},';
+      end loop;
+      -- adaug pauze in afara programului de lucru
+      if v_zi_lucratoare = 0 then
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","tip":"zi_nelucratoare","ora_start":' || 0 || ',"ora_final":' || 24 || '},';
+      else
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","tip":"pauza_out","ora_start":' || v_ora_prog_start || ',"ora_final":' || 24 || '},';
+      end if;
+      end loop;
+       v_pauze := substr(v_pauze, 0, length(v_pauze)-1);
+       v_pauze := v_pauze || ']';
+        return v_pauze;
+  end get_program_neeligibil;
+  
+  function get_tipuri_rezervare(p_punct number) return clob is
+  -- intoarce toate tipurile de rezervari definite la punctul de lucru
+  v_clob clob := '[';
+  cursor c_tip is
+    select id, denumire, durata from tipuri_rezervare where punct_lucru_id = p_punct;
+  begin
+    for r_tip in c_tip loop
+        v_clob := v_clob || '{"id":' || r_tip.id || ',"denumire":"' || r_tip.denumire || '","durata":' || r_tip.durata || '},';
+    end loop;
+    v_clob := substr(v_clob, 0, length(v_clob)-1);
+    v_clob := v_clob || ']';
+    return v_clob;
+  end get_tipuri_rezervare;
 
 
 END TERT_MANAGEMENT;

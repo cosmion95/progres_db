@@ -16,6 +16,13 @@ CREATE OR REPLACE PACKAGE TERT_MANAGEMENT AS
   
   function get_procent_ocupare(p_punct number, p_data varchar2) return varchar2;
   -- intoarce cat % de ocupat este punctul de lucru la data transmisa
+  
+  function get_program_neeligibil(p_punct number) return clob;
+  -- intoarce datele, orele si durata rezervarilor validate la punct
+  -- pauzele de la program(exceptii program) si zilele nelucratoare
+  
+    function get_tipuri_rezervare(p_punct number) return clob;
+  -- intoarce toate tipurile de rezervari definite la punctul de lucru
 
 END TERT_MANAGEMENT;
 /
