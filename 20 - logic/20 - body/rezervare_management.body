@@ -39,6 +39,7 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
          where cl.punct_lucru_id = p_punct_lucru
            and trunc(cl.data_ora) = trunc(p_data)
            and cl.validata = 'D'
+           and cl.anulata = 'N'
            and to_number((to_char(cl.data_ora, 'hh24') || '.' || to_number(to_char(cl.data_ora, 'mi')))) <= to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi'))))
           order by cl.data_ora desc;
     r_ant prog_ant%rowtype;
@@ -67,6 +68,7 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
      where cl.punct_lucru_id = p_punct_lucru
        and trunc(cl.data_ora) = trunc(p_data)
        and cl.validata = 'D'
+       and cl.anulata = 'N'
        and to_number((to_char(cl.data_ora, 'hh24') || '.' || to_number(to_char(cl.data_ora, 'mi')))) > to_number((to_char(p_data, 'hh24') || '.' || to_number(to_char(p_data, 'mi'))))
       order by cl.data_ora;
     r_rez c_rez%rowtype;
@@ -320,6 +322,31 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
     return v_return;
     
   end verificare_timp_ales;
+  
+  function get_detalii_rezervare(p_rezervare number) return varchar2 is
+  --intoarce detaliile despre o rezervare
+  v_return varchar2(2048);
+  cursor c_rez is
+    select cd.id, cd.data_ora, cd.validata, cd.anulata, cd.mesaj, cd.durata, cd.motiv_anulare, (ang.nume || ' ' || ang.prenume) rezervare_la,
+            cd.creata_la, cd.validata_la, cd.anulata_la, tip.id tip_id, tip.denumire tip_denumire, tip.durata tip_durata
+    from calendar_rezervari cd left join tipuri_rezervare tip on cd.tip_rezervare_id = tip.id left join angajati ang on cd.rezervare_la = ang.id
+    where cd.id = p_rezervare;
+  r_rez c_rez%rowtype;
+  begin
+    if p_rezervare is not null then
+        open c_rez;
+        fetch c_rez into r_rez;
+        if c_rez%found then
+            v_return := '{"id":' || r_rez.id || ', "data_ora":"' || to_char(r_rez.data_ora, 'DD.MM.YYYY HH24:MI') || '","validata":"' ||
+                        r_rez.validata || '", "anulata":"' || r_rez.anulata || '", "mesaj":"' || r_rez.mesaj || '", "durata":"' || r_rez.durata || 
+                        '","motiv_anulare":"' || r_rez.motiv_anulare || '", "rezervare_la":"' || r_rez.rezervare_la || '","creata_la":"' || to_char(r_rez.creata_la, 'DD.MM.YYYY HH24:MI') ||
+                        '","validata_la":"' || to_char(r_rez.validata_la, 'DD.MM.YYYY HH24:MI') || '","anulata_la":"' || to_char(r_rez.anulata_la, 'DD.MM.YYYY HH24:MI') || '","tip_id":"' ||
+                        r_rez.tip_id || '", "tip_denumire":"' || r_rez.tip_denumire || '", "tip_durata":"' || r_rez.tip_durata || '"}';
+        end if;
+    end if;
+    return v_return;
+  end get_detalii_rezervare;
+
   
 END REZERVARE_MANAGEMENT;
 /

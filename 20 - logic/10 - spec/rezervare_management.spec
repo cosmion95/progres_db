@@ -13,6 +13,9 @@ CREATE OR REPLACE PACKAGE REZERVARE_MANAGEMENT AS
     function verificare_timp_ales(p_punct number, v_data varchar2, p_tip number) return varchar2;
     -- verifica daca data si ora aleasa de utilizator sunt valide
     -- incearca sa gaseasca o ora valida daca exista si sa o intoarca inapoi catre utilizator
-
+    
+    function get_detalii_rezervare(p_rezervare number) return varchar2;
+  --intoarce detaliile despre o rezervare
+    
 END REZERVARE_MANAGEMENT;
 /
