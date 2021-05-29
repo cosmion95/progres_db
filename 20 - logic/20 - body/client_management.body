@@ -1,13 +1,15 @@
 CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
 
-  procedure register_client(p_nume varchar2, p_prenume varchar2, p_email varchar2, p_username varchar2, p_parola varchar2, p_telefon varchar2, p_localitate number) AS
+  --////*************** inregistrare, generare coduri de inregistrare si validare cont *********///////////////////
+    procedure register_client(p_nume varchar2, p_prenume varchar2, p_email varchar2, p_parola varchar2, p_salt varchar2, p_telefon varchar2, p_localitate number) AS
+    -- inregistreaza un nou cont de client
     v_check_email number(10);
-  BEGIN
+    BEGIN
     if p_nume is null or p_prenume is null then
         demo.raise_error('Numele si prenumele trebuie completat.');
     elsif p_email is null then
         demo.raise_error('Email-ul trebuie completat.');
-    elsif p_username is null or p_parola is null then
+    elsif p_parola is null then
         demo.raise_error('Username-ul si parola trebuie completate.');
     elsif p_telefon is null then
         demo.raise_error('Numarul de telefon trebuie completat.');
@@ -16,46 +18,16 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
     end if;
     --TODO: validare email si nr telefon
     --verific daca mai exista vreun client cu acelasi username/email
-    select count(*) into v_check_email from clienti where upper(email) = upper(p_email) or upper(username) = upper(p_username);
+    select count(*) into v_check_email from clienti where upper(email) = upper(p_email);
     if v_check_email > 0 then
         demo.raise_error('Aceasta adresa de email exista deja in sistem.');
     end if;
-    insert into clienti(id, nume, prenume, email, username, parola, telefon, localitate_id)
-        values(progres_id.nextval, p_nume, p_prenume, p_email, p_username, p_parola, p_telefon, p_localitate);
+    insert into clienti(id, nume, prenume, email, parola, salt, telefon, localitate_id)
+        values(progres_id.nextval, p_nume, p_prenume, p_email, p_parola, p_salt, p_telefon, p_localitate);
     client_management.generare_cod_inregistrare(p_email);
-  END register_client;
-
-  procedure add_recenzie(p_client number, p_punct_lucru number, p_recenzie varchar2) AS
-  BEGIN
-    if p_client is null or p_punct_lucru is null then
-        demo.raise_error('Eroare: nu s-a transmis clientul sau punctul de lucru');
-    elsif p_recenzie is null or length(p_recenzie) < 10 then
-        demo.raise_error('Recenzia trebuie sa contina cel putin 10 caractere.');
-    end if;
-    insert into recenzii(id, client_id, punct_lucru_id, recenzie, creat_la)
-        values(progres_id.nextval, p_client, p_punct_lucru, p_recenzie, sysdate);
-  END add_recenzie;
-  
-  procedure recalculeaza_rata_prezenta(p_client number) is
-  -- actualizeaza rata de prezenta a clientului
-  -- apelata din trigger after update pe calendar rezervari daca se modifica bifa de prezenta
-  v_total_rezervari number(10);
-  v_rezervari_absent number(10);
-  v_rata number(10);
-  begin
-    select count(*) into v_total_rezervari from calendar_rezervari where client_id = p_client and validata = 'D';
-    select count(*) into v_rezervari_absent from calendar_rezervari where client_id = p_client and validata = 'D' and prezenta = 'N';
-    v_rata := 100 - ((v_rezervari_absent*100)/v_total_rezervari);
-    update clienti set rata_prezenta = v_rata where id = p_client;
-  end;
-  
-  procedure adauga_cod_inregistrare(p_client number, p_cod varchar2, p_generatii number default 1, p_validari number default 0) is
-  begin
-    insert into coduri_inregistrare(id, client_id, cod, generat_la, generate_ultima_ora, incercari_validare)
-        values(progres_id.nextval,p_client, p_cod, sysdate, p_generatii, p_validari);
-  end adauga_cod_inregistrare;
-  
-  procedure generare_cod_inregistrare(p_email varchar2) is
+    END register_client;
+    
+    procedure generare_cod_inregistrare(p_email varchar2) is
     -- sterge un cod de inregistrare si genereaza altul nou
     -- permite un maxim de 5 coduri pe ora per user
     v_cod varchar2(6);
@@ -104,16 +76,16 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         end if;
     end generare_cod_inregistrare;
     
-    procedure validare_cont_client(p_client number, p_cod varchar2) is
+    procedure validare_cont_client(p_email varchar2, p_cod varchar2) is
     -- valideaza contul clientului daca codul este corect si nu au trecut mai mult de 3 ore de la generarea lui
     -- permite max 5 incercari pe ora
     cursor c_client is
-        select email, cont_valid from clienti where id = p_client;
+        select id, email, cont_valid from clienti where email = p_email;
     r_client c_client%rowtype;
-    cursor c_cod is
+    cursor c_cod(p_client_id number) is
         select ci.id, ci.cod, ci.incercari_validare, ci.incercat_validare_la 
           from coduri_inregistrare ci
-         where ci.client_id = p_client
+         where ci.client_id = p_client_id
            and demo.verifica_minute_trecute(ci.generat_la, 180) = 'D';
     r_cod c_cod%rowtype;
     v_validari number(1) := 1;
@@ -128,7 +100,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
             if r_client.cont_valid = 'D' then
                 demo.raise_error('Contul utilizatorului ' || r_client.email || ' a fost deja activat.');
             else
-                open c_cod;
+                open c_cod(r_client.id);
                 fetch c_cod into r_cod;
                 if c_cod%notfound then
                     close c_cod;
@@ -153,13 +125,22 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
                          commit;
                          demo.raise_error('Cod invalid.');
                     else
-                        delete from coduri_inregistrare where client_id = p_client;
-                        update clienti set cont_valid = 'D' where id = p_client;
+                        delete from coduri_inregistrare where client_id = r_client.id;
+                        client_management.adauga_cod_login(r_client.id, 'INREG');
+                        update coduri_login set validat = 'D' where client_id = r_client.id;
+                        update clienti set cont_valid = 'D' where id = r_client.id;
                     end if;
                 end if;
             end if;
         end if;
     end validare_cont_client;
+    
+    procedure adauga_cod_inregistrare(p_client number, p_cod varchar2, p_generatii number default 1, p_validari number default 0) is
+    -- adauga un cod de inregistrare
+    begin
+    insert into coduri_inregistrare(id, client_id, cod, generat_la, generate_ultima_ora, incercari_validare)
+        values(progres_id.nextval,p_client, p_cod, sysdate, p_generatii, p_validari);
+    end adauga_cod_inregistrare;
     
     function get_cod_inregistrare(p_email varchar2) return varchar2 is
     -- intoarce codul de inregistrare al unui client
@@ -168,8 +149,15 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         select cod into v_cod from coduri_inregistrare ci, clienti c where c.email = p_email and ci.client_id = c.id;
         return v_cod;
     end get_cod_inregistrare;
+    --////*************** ----------------------------------------------------------------------------------------- *********///////////////////
     
-    function login(p_email varchar2, p_parola varchar2) return number is
+    
+    
+    
+    
+    
+    --////*************** login cu 2FA prin email *********///////////////////
+    procedure login(p_email varchar2, p_parola varchar2) is
     -- verifica daca email-ul si parola se potrivesc
         cursor c_client is
             select id, parola
@@ -185,12 +173,238 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         else
             close c_client;
             if r_client.parola = p_parola then
-                return r_client.id;
+                client_management.generare_cod_login(p_email);
             else
                demo.raise_error('Email sau parola incorecta.'); 
             end if;
         end if;
     end login;
+    
+    procedure generare_cod_login(p_email varchar2) is
+    -- sterge un cod de login si genereaza altul nou
+    -- permite un maxim de 5 coduri pe ora per user
+    v_cod varchar2(6);
+    v_client number(10);
+    v_generatii number(1) := 1;
+    v_validari number(1) := 0;
+    cursor c_client is
+        select id, cont_valid from clienti where email = p_email;
+    r_client c_client%rowtype;
+    cursor c_cod(p_client number) is
+        select ci.generate_ultima_ora, ci.generat_la, ci.incercari_validare
+          from coduri_login ci
+         where ci.client_id = p_client;
+    r_cod c_cod%rowtype;
+    begin
+        open c_client;
+        fetch c_client into r_client;
+        if c_client%notfound then
+            close c_client;
+            demo.raise_error('Clientul cu email ' || p_email || ' nu a fost gasit.');
+        else
+            close c_client;
+            if r_client.cont_valid = 'N' then
+                demo.raise_error('Contul clientului cu email ' || p_email || ' nu este activat.');
+            end if;
+            open c_cod(r_client.id);
+            fetch c_cod into r_cod;
+            if c_cod%found then
+                -- verific daca s-au mai generat si alte coduri in ultima ora
+                if (sysdate - r_cod.generat_la)*24 < 1 then
+                    -- a trecut mai putin de o ora de la ultima generare
+                    -- salvez numarul incercarilor
+                    v_validari := r_cod.incercari_validare;
+                    -- generez cod nou numai daca au fost mai putin de 5 incercari
+                    if r_cod.generate_ultima_ora >= 5 then
+                        demo.raise_error('Prea multe incercari esuate in ultima ora. Va rugam incercati mai tarziu.');
+                    else
+                        v_generatii := r_cod.generate_ultima_ora + 1;
+                    end if;
+                end if;
+            end if;
+            close c_cod;
+            delete from coduri_login where client_id = r_client.id;
+            select DBMS_RANDOM.string('x',6) into v_cod from dual;
+            client_management.adauga_cod_login(r_client.id, v_cod, v_generatii, v_validari);
+        end if;
+    end generare_cod_login;
+    
+    procedure validare_login(p_email varchar2, p_cod varchar2) is
+    -- valideaza login-ul daca codul este corect si nu au trecut mai mult de 3 ore de la generarea lui
+    -- permite max 5 incercari pe ora
+    cursor c_client is
+        select id, email, cont_valid from clienti where email = p_email;
+    r_client c_client%rowtype;
+    cursor c_cod(p_client_id number) is
+        select ci.id, ci.cod, ci.incercari_validare, ci.incercat_validare_la 
+          from coduri_login ci
+         where ci.client_id = p_client_id
+           and demo.verifica_minute_trecute(ci.generat_la, 180) = 'D';
+    r_cod c_cod%rowtype;
+    v_validari number(1) := 1;
+    begin
+        open c_client;
+        fetch c_client into r_client;
+        if c_client%notfound then
+            close c_client;
+            demo.raise_error('A aparut o eroare. Utilizator invalid.');
+        else
+            close c_client;
+            if r_client.cont_valid = 'N' then
+                demo.raise_error('Contul utilizatorului cu email-ul ' || r_client.email || ' nu este activat.');
+            else
+                open c_cod(r_client.id);
+                fetch c_cod into r_cod;
+                if c_cod%notfound then
+                    close c_cod;
+                    client_management.generare_cod_login(r_client.email);
+                    demo.raise_error('Nu exista niciun cod de login pentru utilizatorul ' || r_client.email || '. Am generat un cod nou si l-am trimis la adresa specificata.');
+                else
+                    close c_cod;
+                    -- daca a trecut mai putin de 1 ora de la incercarea anterioara
+                    if (sysdate - r_cod.incercat_validare_la)*24 < 1 or r_cod.incercat_validare_la is null then
+                        -- daca au fost peste 5 incercari
+                        if r_cod.incercari_validare >= 5 then
+                            demo.raise_error('Prea multe incercari in ultima ora. Va rugam incercati mai tarziu.');
+                        else
+                            v_validari := r_cod.incercari_validare + 1;
+                        end if;
+                    end if;
+                    if r_cod.cod <> p_cod then
+                        update coduri_login 
+                           set incercari_validare = v_validari,
+                               incercat_validare_la = sysdate
+                         where id = r_cod.id;
+                         commit;
+                         demo.raise_error('Cod invalid.');
+                    else
+                        update coduri_login set validat = 'D' where client_id = r_client.id;
+                    end if;
+                end if;
+            end if;
+        end if;
+    end validare_login;
+    
+    procedure adauga_cod_login(p_client number, p_cod varchar2, p_generatii number default 1, p_validari number default 0) is
+    -- adauga un cod de login
+    begin
+    insert into coduri_login(id, client_id, cod, generat_la, generate_ultima_ora, incercari_validare)
+        values(progres_id.nextval,p_client, p_cod, sysdate, p_generatii, p_validari);
+    end adauga_cod_login;
+    
+    function get_cod_login(p_email varchar2) return varchar2 is
+    -- intoarce codul de login al unui client
+    v_cod varchar2(6);
+    begin
+        select cod into v_cod from coduri_login ci, clienti c where c.email = p_email and ci.client_id = c.id;
+        return v_cod;
+    end get_cod_login;
+    --////*************** ------------------------------------------------------------------------------ *********///////////////////
+    
+    
+    
+    
+    
+    --////*************** generare si autorizare operatiuni prin token *********///////////////////
+    procedure create_client_token(p_client number) is
+    -- creeaza un nou token pentru client
+    v_token varchar2(32);
+    v_found number(1) := 1;
+    begin
+      if p_client is null then
+        demo.raise_error('A aparut o eroare.'); 
+      end if;
+      delete from client_tokens where client_id = p_client;
+      while v_found > 0 loop
+        select DBMS_RANDOM.string('x',32) into v_token from dual;
+        select count(*) into v_found from client_tokens where token = v_token;
+      end loop;
+      insert into client_tokens(client_id, token)
+        values(p_client, v_token);
+    end create_client_token;
+    
+    function get_client_token(p_client number) return varchar2 is
+    -- intoarce cel mai recent creat token al unui client
+    cursor c_tok is
+      select token from client_tokens where client_id = p_client order by creat_la desc;
+    r_tok c_tok%rowtype;
+    begin
+      open c_tok;
+      fetch c_tok into r_tok;
+      if c_tok%notfound then
+        close c_tok;
+        demo.raise_error('Clientul nu are niciun token generat.'); 
+      else
+        close c_tok;
+        return r_tok.token;
+      end if;
+    end get_client_token;
+    
+    function check_token(p_token varchar2, p_cont_valid varchar2, p_login varchar2, p_client_id number) return varchar2 is
+    -- verifica daca token-ul transmis este valid
+    cursor c is
+      select c.cont_valid, cl.validat, c.id client_id from client_tokens ct, clienti c left join coduri_login cl on cl.client_id = c.id
+        where ct.token = p_token
+        and ct.client_id = c.id;
+    r c%rowtype;
+    begin
+      open c;
+      fetch c into r;
+      if c%notfound then
+        close c;
+        return 'N';
+      else
+        close c;
+        if p_cont_valid = 'D' then
+            if r.cont_valid = 'N' then
+                return 'N';
+            end if;
+        end if;
+        if p_login = 'D' then
+            if r.validat = 'N' then
+                return 'N';
+            end if;
+        end if;
+        if p_client_id is not null then
+            if r.client_id <> p_client_id then
+                return 'N';
+            end if;
+        end if;
+        return 'D';
+      end if;
+    end check_token;
+    --////*************** ------------------------------------------------------------------------------ *********///////////////////
+    
+    
+    
+    
+    
+    
+    
+    procedure add_recenzie(p_client number, p_punct_lucru number, p_recenzie varchar2) AS
+    -- adauga o recenzie
+    BEGIN
+    if p_client is null or p_punct_lucru is null then
+        demo.raise_error('Eroare: nu s-a transmis clientul sau punctul de lucru');
+    elsif p_recenzie is null or length(p_recenzie) < 10 then
+        demo.raise_error('Recenzia trebuie sa contina cel putin 10 caractere.');
+    end if;
+    insert into recenzii(id, client_id, punct_lucru_id, recenzie, creat_la)
+        values(progres_id.nextval, p_client, p_punct_lucru, p_recenzie, sysdate);
+    END add_recenzie;
+    
+    procedure recalculeaza_rata_prezenta(p_client number) is
+    -- actualizeaza rata de prezenta a clientului
+    -- apelata din trigger after update pe calendar rezervari daca se modifica bifa de prezenta
+    v_total_rezervari number(10);
+    v_rezervari_absent number(10);
+    v_rata number(10);
+    begin
+    select count(*) into v_total_rezervari from calendar_rezervari where client_id = p_client and validata = 'D';
+    select count(*) into v_rezervari_absent from calendar_rezervari where client_id = p_client and validata = 'D' and prezenta = 'N';
+    v_rata := 100 - ((v_rezervari_absent*100)/v_total_rezervari);
+    update clienti set rata_prezenta = v_rata where id = p_client;
+    end;
     
     function get_client_from_id(p_client number) return varchar2 is
     -- intoarce detaliile despre client
@@ -260,62 +474,21 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
         end if;
     end get_client_id;
     
-    procedure create_client_token(p_client number) is
-    -- creeaza un nou token pentru client
-    v_token varchar2(32);
-    v_found number(1) := 1;
+    function get_salt(p_email varchar2) return varchar2 is
+    -- intoarce salt-ul parolei
+    cursor c is
+      select salt from clienti where email = p_email;
+    r c%rowtype;
     begin
-      if p_client is null then
-        demo.raise_error('A aparut o eroare.'); 
-      end if;
-      while v_found > 0 loop
-        select DBMS_RANDOM.string('x',32) into v_token from dual;
-        select count(*) into v_found from client_tokens where client_id = p_client and token = v_token;
-      end loop;
-      insert into client_tokens(client_id, token)
-        values(p_client, v_token);
-    end create_client_token;
-    
-    function get_client_tokens(p_client number) return varchar2 is
-    -- intoarce token-urile unui client
-    v_tokens varchar2(1024) := '{';
-    begin
-      for tok in (select token from client_tokens where client_id = p_client) loop
-        v_tokens := v_tokens || '"token":"' || tok.token || '",';
-      end loop;
-      v_tokens := substr(v_tokens, 0, length(v_tokens)-1);
-      v_tokens := v_tokens || '}';
-      return v_tokens;
-    end get_client_tokens;
-    
-    function get_client_token(p_client number) return varchar2 is
-    -- intoarce cel mai recent creat token al unui client
-    cursor c_tok is
-      select token from client_tokens where client_id = p_client order by creat_la desc;
-    r_tok c_tok%rowtype;
-    begin
-      open c_tok;
-      fetch c_tok into r_tok;
-      if c_tok%notfound then
-        close c_tok;
-        demo.raise_error('Clientul nu are niciun token generat.'); 
+      open c;
+      fetch c into r;
+      if c%found then
+        close c;
+        return '{"salt":"' || r.salt || '"}';
       else
-        close c_tok;
-        return r_tok.token;
+        demo.raise_error('Email sau parola incorecta.');
       end if;
-    end get_client_token;
-    
-    function check_token(p_token varchar2) return varchar2 is
-    -- verifica daca token-ul transmis este valid
-    v_check number(1);
-    begin
-      select count(*) into v_check from client_tokens where token = p_token;
-      if v_check > 0 then
-        return 'D';
-      else
-        return 'N';
-      end if;
-    end check_token;
+    end get_salt;
     
 
 END CLIENT_MANAGEMENT;
