@@ -84,16 +84,20 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
         values(progres_id.nextval, p_punct_lucru, p_nume, p_prenume, p_username, p_parola, p_telefon, p_functie, p_manager);
   end add_angajat;
   
-  function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2) return clob is
+  function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2, p_pagina number) return clob is
   -- filtreaza si intoarce o lista cu punctele de lucru
   v_clob clob := '[';
   cursor c is
+  select y.* from
+  (select x.*, rownum rn from (
   select p.id, p.denumire, p.telefon, p.strada, p.nr_strada, p.zile_rezervari_max, d.id dom_id, d.denumire dom_denumire, d.icon_id dom_icon_id, d.font_family dom_font_family
     from puncte_lucru p, domenii d
     where p.localitate_id = p_localitate
     and p.domeniu_id = d.id
     and (p.domeniu_id = p_domeniu or p_domeniu is null)
-    and (tert_management.verifica_cuvinte_cheie(p.denumire, p.cuvinte_cheie, p_cuvinte_cheie) = 'D' or p_cuvinte_cheie is null);
+    and (tert_management.verifica_cuvinte_cheie(p.denumire, p.cuvinte_cheie, p_cuvinte_cheie) = 'D' or p_cuvinte_cheie is null)) x) y
+    where y.rn >= (p_pagina*10 + 1 - 10)
+      and y.rn <= (p_pagina*10);
   begin
     for r in c loop
         v_clob := v_clob || '{"id":' || r.id || ',"denumire":"' || r.denumire || '","telefon":"' || r.telefon || '","strada":"' ||

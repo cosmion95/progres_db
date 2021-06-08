@@ -490,6 +490,15 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
       end if;
     end get_salt;
     
+    function get_prenume(p_email varchar2) return varchar2 is
+    -- intoarce prenumele utilizatorului
+    -- folosit la trimiterea email-urilor
+    v_prenume varchar2(64);
+    begin
+        select prenume into v_prenume from clienti where email = p_email;
+        return v_prenume;
+    end get_prenume;
+    
 
 END CLIENT_MANAGEMENT;
 /

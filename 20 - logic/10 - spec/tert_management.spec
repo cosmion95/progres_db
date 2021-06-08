@@ -5,7 +5,7 @@ CREATE OR REPLACE PACKAGE TERT_MANAGEMENT AS
   procedure add_exceptie_program(p_punct_lucru number, p_data date, p_ora_start number, p_ora_final number);
   procedure add_tip_rezervare(p_punct_lucru number, p_denumire varchar2, p_durata number, p_validare_automata varchar2, p_creat_de number);
   procedure add_angajat(p_punct_lucru number, p_nume varchar2, p_prenume varchar2, p_username varchar2, p_parola varchar2, p_functie varchar2, p_telefon varchar2, p_manager varchar2 default 'N');
-  function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2) return clob;
+  function get_puncte_lucru(p_localitate number, p_domeniu number, p_cuvinte_cheie varchar2, p_pagina number) return clob;
   function verifica_cuvinte_cheie(p_denumire_punct varchar2, p_cuvinte_punct varchar2, p_cuvinte_cautate varchar2) return varchar2;
   
   function get_program_punct(p_punct number) return clob;
