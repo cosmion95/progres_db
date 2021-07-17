@@ -221,8 +221,8 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
     r_rez c_rez%rowtype;
     begin
       for r in c_total loop
-        v_min_start := v_min_start + floor(r.ora_start)*60 + (r.ora_start - floor(r.ora_start))*100;
-        v_min_final := v_min_final + floor(r.ora_final)*60 + (r.ora_final - floor(r.ora_final))*100;
+        v_min_start := floor(r.ora_start)*60 + (r.ora_start - floor(r.ora_start))*100;
+        v_min_final := floor(r.ora_final)*60 + (r.ora_final - floor(r.ora_final))*100;
         v_total_minute := v_total_minute + (v_min_final - v_min_start);
       end loop;
       open c_rez;
@@ -238,18 +238,55 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
       return '{"procent":"' || to_char(100 - v_procent) || '"}';
   end get_procent_ocupare;
   
+  function get_procent_ocupare_number(p_punct number, p_data varchar2) return number is
+  -- intoarce cat % de ocupat este punctul de lucru la data transmisa
+    v_total_minute number(10) := 0;
+    v_min_rezerv number(10) := 0;
+    v_procent number(10) := 0;
+    v_min_start number(10) := 0;
+    v_min_final number(10) := 0;
+    cursor c_total is
+      select x.* from
+    (select nvl(ep.ora_start, p.ora_start) ora_start, nvl(ep.ora_final, p.ora_final) ora_final
+    from program p left join exceptii_program ep on ep.punct_lucru_id = p.punct_lucru_id and trunc(ep.data) = trunc(to_date(p_data, 'DD.MM.YYYY'))
+    where p.punct_lucru_id = p_punct
+    and p.zi_program_nr = to_number(to_char(to_date(p_data, 'DD.MM.YYYY'), 'd'))) x
+    group by x.ora_start, x.ora_final
+    order by x.ora_start;
+    cursor c_rez is
+      select sum(durata) durata from calendar_rezervari where punct_lucru_id = p_punct and trunc(data_ora) = trunc(to_date(p_data, 'DD.MM.YYYY')) and anulata = 'N' and validata = 'D';
+    r_rez c_rez%rowtype;
+    begin
+      for r in c_total loop
+        v_min_start := floor(r.ora_start)*60 + (r.ora_start - floor(r.ora_start))*100;
+        v_min_final := floor(r.ora_final)*60 + (r.ora_final - floor(r.ora_final))*100;
+        v_total_minute := v_total_minute + (v_min_final - v_min_start);
+      end loop;
+      open c_rez;
+      fetch c_rez into r_rez;
+      if c_rez%found and r_rez.durata is not null then
+        v_min_rezerv := r_rez.durata;
+      else
+        v_min_rezerv := 0;
+      end if;
+      if v_total_minute > 0 then
+        v_procent := 100 - ((v_min_rezerv*100)/v_total_minute);
+      end if;
+      return 100 - v_procent;
+  end get_procent_ocupare_number;
+  
   function get_program_neeligibil(p_punct number, p_client number) return clob is
     v_pauze clob := '[';
-    v_ora_pauza_start number;
-    v_ora_pauza_final number;
-    v_ora_prog_start number;
-    v_ora_prog_final number;
-    v_count_pauze number := 0;
-    v_zi_lucratoare number := 0;
-    v_ora_start_rez number;
-    v_ora_final_rez number;
-    v_tip varchar2(32);
-    v_subiect varchar2(32);
+    v_ora_pauza_start number(10,6);
+    v_ora_pauza_final number(10,6);
+    v_ora_prog_start number(10,6);
+    v_ora_prog_final number(10,6);
+    v_count_pauze number(10) := 0;
+    v_zi_lucratoare number(10) := 0;
+    v_ora_start_rez number(10,6);
+    v_ora_final_rez number(10,6);
+    v_tip varchar2(256);
+    v_subiect varchar2(256);
     cursor c_date is
      with dates as (select sysdate + ROWNUM - 1 data_gasita
                           from dual 
@@ -290,7 +327,7 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
             v_ora_pauza_start := r_prog.ora_final;
             v_ora_prog_final := r_prog.ora_start;
             v_subiect := 'Inchis';
-            v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_out","ora_start":' || 0 || ',"ora_final":' || r_prog.ora_start || '},';
+            v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_out","ora_start":' || '0' || ',"ora_final":' || to_char(r_prog.ora_start) || '},';
         else
             if v_ora_pauza_start is null then
                 v_ora_pauza_start := r_prog.ora_final;
@@ -298,7 +335,7 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
             if v_ora_pauza_final is null then
                 v_ora_pauza_final := r_prog.ora_start;
                 v_subiect := 'Pauza';
-                v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_in","ora_start":' || v_ora_pauza_start || ',"ora_final":' || v_ora_pauza_final || '},';
+                v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_in","ora_start":' || to_char(v_ora_pauza_start) || ',"ora_final":' || to_char(v_ora_pauza_final) || '},';
                 v_ora_pauza_start := r_prog.ora_final;
                 v_ora_pauza_final := null;
             end if;
@@ -313,7 +350,7 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
         select to_number(to_char(r_rez.data_ora + (1/1440*r_rez.durata), 'HH24')) + to_number(to_char(r_rez.data_ora + (1/1440*r_rez.durata), 'MI'))/100
           into v_ora_final_rez from dual;
         v_subiect := 'Rezervare';
-        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"rezervare","ora_start":' || v_ora_start_rez || ',"ora_final":' || v_ora_final_rez || '},';
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"rezervare","ora_start":' || to_char(v_ora_start_rez) || ',"ora_final":' || to_char(v_ora_final_rez) || '},';
       end loop;
       for r_rez in c_rezervari_proprii(r_data.data_gasita) loop
         select to_number(to_char(r_rez.data_ora, 'HH24')) +  to_number(to_char(r_rez.data_ora, 'MI'))/100
@@ -328,14 +365,14 @@ CREATE OR REPLACE PACKAGE BODY TERT_MANAGEMENT AS
             v_tip := 'proprie_trimisa';
         end if;
         v_subiect := r_rez.subiect;
-        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"' || v_tip || '","ora_start":' || v_ora_start_rez || ',"ora_final":' || v_ora_final_rez || ',"rezervare_id":' || r_rez.rezervare_id || '},';
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"' || v_tip || '","ora_start":' || to_char(v_ora_start_rez) || ',"ora_final":' || to_char(v_ora_final_rez) || ',"rezervare_id":' || r_rez.rezervare_id || '},';
       end loop;
       -- adaug pauze in afara programului de lucru
       v_subiect := 'Inchis';
       if v_zi_lucratoare = 0 then
-        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"zi_nelucratoare","ora_start":' || 0 || ',"ora_final":' || 24 || '},';
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"zi_nelucratoare","ora_start":' || '0' || ',"ora_final":' || '24' || '},';
       else
-        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_out","ora_start":' || v_ora_prog_start || ',"ora_final":' || 24 || '},';
+        v_pauze := v_pauze || '{"data":"' || to_char(r_data.data_gasita, 'DD.MM.YYYY') || '","subiect":"' || v_subiect || '","tip":"pauza_out","ora_start":' || to_char(v_ora_prog_start) || ',"ora_final":' || '24' || '},';
       end if;
       end loop;
        v_pauze := substr(v_pauze, 0, length(v_pauze)-1);

@@ -23,6 +23,9 @@ CREATE OR REPLACE PACKAGE TERT_MANAGEMENT AS
   
     function get_tipuri_rezervare(p_punct number) return clob;
   -- intoarce toate tipurile de rezervari definite la punctul de lucru
+  
+  function get_procent_ocupare_number(p_punct number, p_data varchar2) return number;
+  -- intoarce cat % de ocupat este punctul de lucru la data transmisa
 
 END TERT_MANAGEMENT;
 /

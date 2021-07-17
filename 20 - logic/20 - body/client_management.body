@@ -112,7 +112,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
                     if (sysdate - r_cod.incercat_validare_la)*24 < 1 or r_cod.incercat_validare_la is null then
                         -- daca au fost peste 5 incercari
                         if r_cod.incercari_validare >= 5 then
-                            demo.raise_error('Prea multe incercari in ultima ora. Va rugam incercati mai tarziu.');
+                            demo.raise_error('Prea multe incercari gresite in ultima ora. Va rugam incercati mai tarziu.');
                         else
                             v_validari := r_cod.incercari_validare + 1;
                         end if;
@@ -265,7 +265,7 @@ CREATE OR REPLACE PACKAGE BODY CLIENT_MANAGEMENT AS
                     if (sysdate - r_cod.incercat_validare_la)*24 < 1 or r_cod.incercat_validare_la is null then
                         -- daca au fost peste 5 incercari
                         if r_cod.incercari_validare >= 5 then
-                            demo.raise_error('Prea multe incercari in ultima ora. Va rugam incercati mai tarziu.');
+                            demo.raise_error('Prea multe incercari gresite in ultima ora. Va rugam incercati mai tarziu.');
                         else
                             v_validari := r_cod.incercari_validare + 1;
                         end if;

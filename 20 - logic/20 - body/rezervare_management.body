@@ -133,7 +133,6 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
         demo.raise_error('Va rugam alegeti un tip de rezervare sau completati cererea dvs. in mesaj.');
     end if;
     
-    commit;
     --obtin durata
     if p_tip_rezervare is null then
         select minim_timp_estimat into v_durata from puncte_lucru where id = p_punct_lucru;
@@ -164,7 +163,6 @@ CREATE OR REPLACE PACKAGE BODY REZERVARE_MANAGEMENT AS
     open c_rez;
     fetch c_rez into r_rez;
     close c_rez;
-    
     -- verific durata noua
     if p_durata is null then
         demo.raise_error('Durata este obligatorie.');
